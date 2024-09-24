@@ -1,1 +1,1 @@
-scala-cli --jvm 21 hello.scala
+scala-cli --jvm 21 generate_promocodes.scala
