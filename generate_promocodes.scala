@@ -35,6 +35,39 @@ case class CheckingStatusQueryResult(
 ) derives ConfiguredJsonValueCodec, Schema
 
 object PromocodeGenerator extends IOApp:
+  val MAX_N_PROMOCODES = 100_000_000
+  val MAX_N_RANDOM_CHARACTERS = 100
+  val N_ENGLISH_LETTERS = 26
+  val N_DIGITS = 10
+
+  def validateNPromocodes(n_promocodes: Int): Either[Error, Int] = {
+    n_promocodes match {
+      case value if value <= 0 => Left(Error("n_promocodes must be positive"))
+      case value if value > 100_000_000 => Left(Error(s"n_promocodes must be less or equal to ${MAX_N_PROMOCODES}"))
+      case _ => Right(n_promocodes)
+    }
+  }
+
+  def validateNRandomCharacters(n_random_characters: Int, n_promocodes: Int): Either[Error, Int] = {
+    n_random_characters match {
+      case value if value <= 0 => Left(Error("n_random_characters must be positive"))
+      case value if value > 0 => Left(Error(s"n_random_characters must be less or equal to ${MAX_N_RANDOM_CHARACTERS}"))
+      case value if scala.math.pow(N_ENGLISH_LETTERS + N_DIGITS, value) < n_promocodes => Left(Error(s"Too little random characters for ${n_promocodes} promocodes to be generated"))
+      case _ => Right(n_random_characters)
+    }
+  }
+
+  def getCommonPrefix(common_prefix: Option[String]): Either[Error, String] = {
+    common_prefix match {
+      case None => Right("")
+      case Some(common_prefix) =>
+        common_prefix match {
+          case "" => Left(Error("Common prefix should be not empty string"))
+          case _ => Right(common_prefix)
+        }
+    }
+  }
+
   val generationQueryEndpoint =
     endpoint
     .get
@@ -45,9 +78,13 @@ object PromocodeGenerator extends IOApp:
     .mapInTo[GenerationQueryInput]
     .out(jsonBody[GenerationQueryResult])
     .errorOut(jsonBody[Error])
-    .serverLogic[IO](input => IO
-      .println(s"Saying hello to: ${input.n_promocodes}")
-      .flatMap(_ => IO.pure(Right(GenerationQueryResult(input.n_promocodes)))))
+    .serverLogic[IO](input =>
+      for {
+        n_promocodes <- validateNPromocodes(input.n_promocodes)
+        n_random_characters <- validateNRandomCharacters(input.n_random_characters, n_promocodes)
+        common_prefix <- getCommonPrefix(input.common_prefix)
+      }
+    )
 
   val generationQueryRoutes: HttpRoutes[IO] = Http4sServerInterpreter[IO]()
     .toRoutes(generationQueryEndpoint)
