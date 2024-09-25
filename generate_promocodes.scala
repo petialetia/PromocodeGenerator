@@ -79,11 +79,11 @@ object PromocodeGenerator extends IOApp:
     .out(jsonBody[GenerationQueryResult])
     .errorOut(jsonBody[Error])
     .serverLogic[IO](input =>
-      for {
+      IO.pure(for {
         n_promocodes <- validateNPromocodes(input.n_promocodes)
         n_random_characters <- validateNRandomCharacters(input.n_random_characters, n_promocodes)
         common_prefix <- getCommonPrefix(input.common_prefix)
-      }
+      } yield GenerationQueryResult(n_random_characters))
     )
 
   val generationQueryRoutes: HttpRoutes[IO] = Http4sServerInterpreter[IO]()
