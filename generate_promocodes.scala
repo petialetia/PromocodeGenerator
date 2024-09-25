@@ -51,7 +51,7 @@ object PromocodeGenerator extends IOApp:
   def validateNRandomCharacters(n_random_characters: Int, n_promocodes: Int): Either[Error, Int] = {
     n_random_characters match {
       case value if value <= 0 => Left(Error("n_random_characters must be positive"))
-      case value if value > 0 => Left(Error(s"n_random_characters must be less or equal to ${MAX_N_RANDOM_CHARACTERS}"))
+      case value if value > MAX_N_RANDOM_CHARACTERS => Left(Error(s"n_random_characters must be less or equal to ${MAX_N_RANDOM_CHARACTERS}"))
       case value if scala.math.pow(N_ENGLISH_LETTERS + N_DIGITS, value) < n_promocodes => Left(Error(s"Too little random characters for ${n_promocodes} promocodes to be generated"))
       case _ => Right(n_random_characters)
     }
