@@ -3,7 +3,7 @@
 //> using dep com.softwaremill.sttp.tapir::tapir-swagger-ui-bundle:1.11.5
 //> using dep com.softwaremill.sttp.tapir::tapir-jsoniter-scala:1.11.5
 //> using dep org.http4s::http4s-blaze-server:0.23.16
-//> using dep com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.30.11
+//> using dep com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.30.14
 
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.syntax.all.*
