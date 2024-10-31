@@ -145,7 +145,6 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
           promocodes <- Ref[IO].of(ArrayBuffer[String]())
 
           promocodes_infos_unrefed <- promocodes_infos.get
-
           _ = promocodes_infos_unrefed.addOne(current_process_id, ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes))
 
           _ <- generatePromocodes(promocodes, n_promocodes, n_random_characters, common_prefix).start
@@ -166,7 +165,6 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
     .serverLogic[IO](process_id =>
       for {
         infos_unrefed <- promocodes_infos.get
-
         result <- (
           for {
             process_data <- infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
