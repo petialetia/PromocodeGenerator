@@ -60,7 +60,7 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
   def validateNPromocodes(n_promocodes: Int): Either[Error, Int] = {
     n_promocodes match {
       case value if value <= 0 => Left(Error("n_promocodes must be positive"))
-      case value if value > 100_000_000 => Left(Error(s"n_promocodes must be less or equal to ${MAX_N_PROMOCODES}"))
+      case value if value > MAX_N_PROMOCODES => Left(Error(s"n_promocodes must be less or equal to ${MAX_N_PROMOCODES}"))
       case _ => Right(n_promocodes)
     }
   }
