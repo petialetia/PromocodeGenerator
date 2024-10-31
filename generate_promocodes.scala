@@ -21,6 +21,7 @@ import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import com.github.plokhotnyuk.jsoniter_scala.macros.*
 import sttp.tapir.json.jsoniter.*
+import scala.collection.mutable.ArrayBuffer
 
 case class Error(description: String) derives ConfiguredJsonValueCodec, Schema
 
@@ -43,25 +44,16 @@ case class CheckingStatusQueryResult(
 
 case class ProcessInfo(
   n_required_promocodes: Int,
-  generated_promocodes: List[String],
-  start_time: LocalDate
+  start_time: LocalDate,
+  generated_promocodes: Ref[IO, ArrayBuffer[String]]
 )
 
-object PromocodeGenerator extends IOApp:
+class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref[IO, HashMap[Int, ProcessInfo]]):
   val MAX_N_PROMOCODES = 100_000_000
   val MAX_N_RANDOM_CHARACTERS = 100
   val CHARACTERS = ('A' to 'Z').toSet ++ ('0' to '9')
   val N_CHARACTERS = CHARACTERS.size
   val N_CAHARACTER_FOR_FIBER_TO_GENERATE = 3
-
-  val free_process_ids = for {
-    queue <- Queue.unbounded[IO, ProcessIndex]
-    _ <- List.tabulate(Int.MaxValue)(i => i).traverse(queue.offer)
-  } yield queue
-
-  val promocodes_infos = for {
-    promocodes_infos <- Ref[IO].of(HashMap[ProcessIndex, ProcessInfo]())
-  } yield promocodes_infos
 
   def validateNPromocodes(n_promocodes: Int): Either[Error, Int] = {
     n_promocodes match {
@@ -95,30 +87,30 @@ object PromocodeGenerator extends IOApp:
     }
   }
 
-  def generatePromocodes(process_id: ProcessIndex, n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
-    // def generateRoutine(n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
-    //   if (n_required_promocodes < getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
-    //     for {
-    //       infos <- promocodes_infos
-    //       // _ <- infos.modify() //Write generation of combinations of 3 chars and remaining
-    //     } yield ()
-    //   } else {
-    //     val (quotient, remainder) = n_required_promocodes /% N_CHARACTERS
+  // def generatePromocodes(process_id: ProcessIndex, n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
+  //   // def generateRoutine(n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
+  //   //   if (n_required_promocodes < getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
+  //   //     for {
+  //   //       infos <- promocodes_infos
+  //   //       // _ <- infos.modify() //Write generation of combinations of 3 chars and remaining
+  //   //     } yield ()
+  //   //   } else {
+  //   //     val (quotient, remainder) = n_required_promocodes /% N_CHARACTERS
 
-    //     IO(for (i <- (0 to N_CHARACTERS - 1)) {
-    //       for {
-    //         _ <- generateRoutine(quotient + if (i < remainder) 1 else 0, n_random_characters - 1, common_prefix + CHARACTERS.toList()[i]).start
-    //       } yield ()
-    //     })
-    //   }
-    // }
+  //   //     IO(for (i <- (0 to N_CHARACTERS - 1)) {
+  //   //       for {
+  //   //         _ <- generateRoutine(quotient + if (i < remainder) 1 else 0, n_random_characters - 1, common_prefix + CHARACTERS.toList()[i]).start
+  //   //       } yield ()
+  //   //     })
+  //   //   }
+  //   // }
 
-    for {
-      infos <- promocodes_infos
-      _ <- infos.modify(infos => (infos.addOne(process_id, ProcessInfo(n_required_promocodes, List[String](), java.time.LocalDate.now)), IO))
-      // _ <- generateRoutine.start
-    } yield ()
-  }
+  //   for {
+  //     infos <- promocodes_infos
+  //     _ <- infos.modify(infos => (infos.addOne(process_id, ProcessInfo(n_required_promocodes, List[String](), java.time.LocalDate.now)), IO))
+  //     // _ <- generateRoutine.start
+  //   } yield ()
+  // }
 
   def evalRemainingTime(start_time: LocalDate, current_time: LocalDate, n_required_promocodes: Int, n_generated_promocodes: Int): Option[Int] = {
     n_generated_promocodes match {
@@ -169,17 +161,23 @@ object PromocodeGenerator extends IOApp:
     .errorOut(jsonBody[Error])
     .serverLogic[IO](process_id =>
       for {
-        infos <- promocodes_infos
-        infos_unrefed <- infos.get
+        infos_unrefed <- promocodes_infos.get
 
-        result = for {
-          process_data <- infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
-          n_required_promocodes = process_data.n_required_promocodes
-          n_generated_promocodes = process_data.generated_promocodes.size
-          start_time = process_data.start_time
-          remaining_time = evalRemainingTime(start_time, java.time.LocalDate.now, n_required_promocodes, n_generated_promocodes)
-          percentage_of_job_done = (n_generated_promocodes.toDouble / n_required_promocodes * 100).toInt
-        } yield CheckingStatusQueryResult(percentage_of_job_done, remaining_time)
+        result <- (
+          for {
+            process_data <- infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
+          } yield process_data
+        ).traverse(process_data =>
+          for {
+            generated_promocodes <- process_data.generated_promocodes.get
+
+            n_required_promocodes = process_data.n_required_promocodes
+            n_generated_promocodes = generated_promocodes.size
+            start_time = process_data.start_time
+            remaining_time = evalRemainingTime(start_time, java.time.LocalDate.now, n_required_promocodes, n_generated_promocodes)
+            percentage_of_job_done = (n_generated_promocodes.toDouble / n_required_promocodes * 100).toInt
+          } yield CheckingStatusQueryResult(percentage_of_job_done, remaining_time)
+        )
       } yield result
     )
 
@@ -194,10 +192,22 @@ object PromocodeGenerator extends IOApp:
 
   val allRoutes: HttpRoutes[IO] = generationQueryRoutes <+> checkingStatusQueryRoutes <+> swaggerRoutes
 
+
+object PromocodeServer extends IOApp:
   override def run(args: List[String]): IO[ExitCode] =
-    BlazeServerBuilder[IO]
-      .bindHttp(8080, "localhost")
-      .withHttpApp(Router("/" -> allRoutes).orNotFound)
-      .resource
-      .use(_ => IO.never)
-      .as(ExitCode.Success)
+    for {
+      free_process_ids <- for {
+        queue <- Queue.unbounded[IO, ProcessIndex]
+        _ <- List.tabulate(10)(i => i).traverse(queue.offer)
+      } yield queue
+
+      promocodes_infos <- Ref[IO].of(HashMap[ProcessIndex, ProcessInfo]())
+
+      generator = PromocodeGenerator(free_process_ids, promocodes_infos)
+
+      _ <- BlazeServerBuilder[IO]
+        .bindHttp(8080, "localhost")
+        .withHttpApp(Router("/" -> generator.allRoutes).orNotFound)
+        .resource
+        .use(_ => IO.never)
+    } yield ExitCode.Success
