@@ -54,6 +54,8 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
   val CHARACTERS = ('A' to 'Z').toSet ++ ('0' to '9')
   val N_CHARACTERS = CHARACTERS.size
   val N_CAHARACTER_FOR_FIBER_TO_GENERATE = 3
+  val PREGENERATED_SUFFIXES = 1.until(N_CAHARACTER_FOR_FIBER_TO_GENERATE)
+  .foldLeft(CHARACTERS.map(_.toString))((strings, _) => strings.flatMap(s => CHARACTERS.map(c => s + c)))
 
   def validateNPromocodes(n_promocodes: Int): Either[Error, Int] = {
     n_promocodes match {
@@ -87,30 +89,26 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
     }
   }
 
-  // def generatePromocodes(process_id: ProcessIndex, n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
-  //   // def generateRoutine(n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
-  //   //   if (n_required_promocodes < getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
-  //   //     for {
-  //   //       infos <- promocodes_infos
-  //   //       // _ <- infos.modify() //Write generation of combinations of 3 chars and remaining
-  //   //     } yield ()
-  //   //   } else {
-  //   //     val (quotient, remainder) = n_required_promocodes /% N_CHARACTERS
+  def generatePromocodes(promocodes: Ref[IO, ArrayBuffer[String]], n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
+    if (n_required_promocodes <= getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
+      for {
+        promocodes_unrefed <- promocodes.get
+        _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES.take(n_required_promocodes).map(suffix => common_prefix + suffix)
+      } yield ()
+    } else {
+      val quotient = n_required_promocodes / N_CHARACTERS
+      val remainder = n_required_promocodes % N_CHARACTERS
 
-  //   //     IO(for (i <- (0 to N_CHARACTERS - 1)) {
-  //   //       for {
-  //   //         _ <- generateRoutine(quotient + if (i < remainder) 1 else 0, n_random_characters - 1, common_prefix + CHARACTERS.toList()[i]).start
-  //   //       } yield ()
-  //   //     })
-  //   //   }
-  //   // }
-
-  //   for {
-  //     infos <- promocodes_infos
-  //     _ <- infos.modify(infos => (infos.addOne(process_id, ProcessInfo(n_required_promocodes, List[String](), java.time.LocalDate.now)), IO))
-  //     // _ <- generateRoutine.start
-  //   } yield ()
-  // }
+      IO(
+        for (i <- (0 to N_CHARACTERS - 1)) {
+          val n_promocodes_for_subroutine_to_generate = quotient + (if (i < remainder) 1 else 0)
+          for {
+            _ <- generatePromocodes(promocodes, n_promocodes_for_subroutine_to_generate, n_random_characters - 1, common_prefix + CHARACTERS.toList(i)).start
+          } yield ()
+        }
+      )
+    }
+  }
 
   def evalRemainingTime(start_time: LocalDate, current_time: LocalDate, n_required_promocodes: Int, n_generated_promocodes: Int): Option[Int] = {
     n_generated_promocodes match {
@@ -134,19 +132,25 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
     .mapInTo[GenerationQueryInput]
     .out(jsonBody[GenerationQueryResult])
     .errorOut(jsonBody[Error])
-    .serverLogic[IO](input =>
-      IO.pure(for {
-        n_promocodes <- validateNPromocodes(input.n_promocodes)
-        n_random_characters <- validateNRandomCharacters(input.n_random_characters, n_promocodes)
-        common_prefix <- getCommonPrefix(input.common_prefix)
-        // current_process_id <- for {
-        //   ids_queue <- free_process_ids
-        //   current_process_id <- ids_queue.take
-        //   _ <-  for {
-        //     _ <- generatePromocodes(current_process_id, n_promocodes, n_random_characters, common_prefix).start
-        //   } yield()
-        // } yield current_process_id
-      } yield GenerationQueryResult(n_promocodes))
+    .serverLogic[IO](input => (
+        for {
+          n_promocodes <- validateNPromocodes(input.n_promocodes)
+          n_random_characters <- validateNRandomCharacters(input.n_random_characters, n_promocodes)
+          common_prefix <- getCommonPrefix(input.common_prefix)
+        } yield (n_promocodes, n_random_characters, common_prefix)
+      ).traverse((n_promocodes, n_random_characters, common_prefix) =>
+        for {
+          current_process_id <- free_process_ids.take
+
+          promocodes <- Ref[IO].of(ArrayBuffer[String]())
+
+          promocodes_infos_unrefed <- promocodes_infos.get
+
+          _ = promocodes_infos_unrefed.addOne(current_process_id, ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes))
+
+          _ <- generatePromocodes(promocodes, n_promocodes, n_random_characters, common_prefix).start
+        } yield GenerationQueryResult(current_process_id)
+      )
     )
 
   val generationQueryRoutes: HttpRoutes[IO] = Http4sServerInterpreter[IO]()
