@@ -59,7 +59,7 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
   val N_CHARACTERS = CHARACTERS.size
   val N_CAHARACTER_FOR_FIBER_TO_GENERATE = 3
   val PREGENERATED_SUFFIXES = 1.until(N_CAHARACTER_FOR_FIBER_TO_GENERATE)
-  .foldLeft(CHARACTERS.map(_.toString))((strings, _) => strings.flatMap(s => CHARACTERS.map(c => s + c)))
+  .scanLeft(CHARACTERS.map(_.toString))((strings, _) => strings.flatMap(s => CHARACTERS.map(c => s + c)))
 
   def validateNPromocodes(n_promocodes: Int): Either[Error, Int] = {
     n_promocodes match {
@@ -97,7 +97,7 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
     if (n_required_promocodes <= getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
       for {
         promocodes_unrefed <- promocodes.get
-        _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES.take(n_required_promocodes).map(suffix => common_prefix + suffix)
+        _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES(n_random_characters - 1).take(n_required_promocodes).map(suffix => common_prefix + suffix)
       } yield ()
     } else {
       val quotient = n_required_promocodes / N_CHARACTERS
