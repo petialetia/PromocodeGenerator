@@ -42,6 +42,10 @@ case class CheckingStatusQueryResult(
   remainig_time_estimation: Option[Minutes]
 ) derives ConfiguredJsonValueCodec, Schema
 
+case class GetPromocodesQueryResult(
+  provocodes: ArrayBuffer[String]
+) derives ConfiguredJsonValueCodec, Schema
+
 case class ProcessInfo(
   n_required_promocodes: Int,
   start_time: LocalDate,
@@ -186,13 +190,54 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
   val checkingStatusQueryRoutes: HttpRoutes[IO] = Http4sServerInterpreter[IO]()
     .toRoutes(checkingStatusQueryEndpoint)
 
+  def getGeneratedPromocodes(process_data: ProcessInfo): IO[Either[Error, GetPromocodesQueryResult]] =
+    process_data.generated_promocodes.get.flatMap(promocodes => IO(if (promocodes.size == process_data.n_required_promocodes) Right(GetPromocodesQueryResult(promocodes)) else Left(Error("Generation is not yet completed"))))
+
+  val getPromocodesQueryEndpoint =
+    endpoint
+    .get
+    .in("get_promocodes")
+    .in(query[Int]("process_id"))
+    .out(jsonBody[GetPromocodesQueryResult])
+    .errorOut(jsonBody[Error])
+    .serverLogic[IO](process_id =>
+      for {
+        infos_unrefed <- promocodes_infos.get
+
+        promocodes_info <- (
+          for {
+            process_data <- infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
+          } yield process_data
+        ).traverse(process_data =>
+          (for {
+            promocodes <- process_data.generated_promocodes.get
+          } yield promocodes).flatMap(promocodes => IO(promocodes, process_data.n_required_promocodes))
+        )
+
+        promocodes <- (
+          for {
+            (promocodes, n_required_promocodes) <- promocodes_info
+            result <- (if (promocodes.size == n_required_promocodes) Right(GetPromocodesQueryResult(promocodes)) else Left(Error("Generation is not yet completed")))
+            _ = infos_unrefed.remove(process_id)
+          } yield result
+        ).traverse(promocodes =>
+          for {
+            _ <- free_process_ids.offer(process_id)
+          } yield(promocodes)
+        )
+      } yield promocodes
+    )
+
+  val getPromocodesQueryRoutes: HttpRoutes[IO] = Http4sServerInterpreter[IO]()
+    .toRoutes(getPromocodesQueryEndpoint)
+
   val swaggerEndpoints =
     SwaggerInterpreter()
-    .fromServerEndpoints[IO](List(generationQueryEndpoint, checkingStatusQueryEndpoint), "My App", "1.0")
+    .fromServerEndpoints[IO](List(generationQueryEndpoint, checkingStatusQueryEndpoint, getPromocodesQueryEndpoint), "My App", "1.0")
 
   val swaggerRoutes: HttpRoutes[IO] = Http4sServerInterpreter[IO]().toRoutes(swaggerEndpoints)
 
-  val allRoutes: HttpRoutes[IO] = generationQueryRoutes <+> checkingStatusQueryRoutes <+> swaggerRoutes
+  val allRoutes: HttpRoutes[IO] = generationQueryRoutes <+> checkingStatusQueryRoutes <+> getPromocodesQueryRoutes <+> swaggerRoutes
 
 
 object PromocodeServer extends IOApp:
