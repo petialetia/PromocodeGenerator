@@ -10,7 +10,7 @@ import java.time.temporal.ChronoUnit
 import scala.collection.mutable.HashMap
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.std.Queue
-import cats.effect.kernel.Ref
+import cats.effect.std.AtomicCell
 import cats.syntax.all.*
 import org.http4s.HttpRoutes
 import org.http4s.blaze.server.BlazeServerBuilder
@@ -49,10 +49,10 @@ case class GetPromocodesQueryResult(
 case class ProcessInfo(
   n_required_promocodes: Int,
   start_time: LocalDate,
-  generated_promocodes: Ref[IO, ArrayBuffer[String]]
+  generated_promocodes: AtomicCell[IO, ArrayBuffer[String]]
 )
 
-class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref[IO, HashMap[Int, ProcessInfo]]):
+class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: AtomicCell[IO, HashMap[Int, ProcessInfo]]):
   val MAX_N_PROMOCODES = 100_000_000
   val MAX_N_RANDOM_CHARACTERS = 100
   val CHARACTERS = ('A' to 'Z').toSet ++ ('0' to '9')
@@ -93,7 +93,7 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
     }
   }
 
-  def generatePromocodes(promocodes: Ref[IO, ArrayBuffer[String]], n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
+  def generatePromocodes(promocodes: AtomicCell[IO, ArrayBuffer[String]], n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
     if (n_required_promocodes <= getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
       if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) {
         for {
@@ -156,7 +156,7 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
         for {
           current_process_id <- free_process_ids.take
 
-          promocodes <- Ref[IO].of(ArrayBuffer[String]())
+          promocodes <- AtomicCell[IO].of(ArrayBuffer[String]())
 
           promocodes_infos_unrefed <- promocodes_infos.get
           _ = promocodes_infos_unrefed.addOne(current_process_id, ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes))
@@ -258,7 +258,7 @@ object PromocodeServer extends IOApp:
         _ <- List.tabulate(10)(i => i).traverse(queue.offer)
       } yield queue
 
-      promocodes_infos <- Ref[IO].of(HashMap[ProcessIndex, ProcessInfo]())
+      promocodes_infos <- AtomicCell[IO].of(HashMap[ProcessIndex, ProcessInfo]())
 
       generator = PromocodeGenerator(free_process_ids, promocodes_infos)
 
