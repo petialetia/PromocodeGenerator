@@ -95,10 +95,20 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ref
 
   def generatePromocodes(promocodes: Ref[IO, ArrayBuffer[String]], n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
     if (n_required_promocodes <= getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
-      for {
-        promocodes_unrefed <- promocodes.get
-        _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES(n_random_characters - 1).take(n_required_promocodes).map(suffix => common_prefix + suffix)
-      } yield ()
+      if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) {
+        for {
+          promocodes_unrefed <- promocodes.get
+          _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES(n_random_characters - 1).take(n_required_promocodes).map(suffix => common_prefix + suffix)
+        } yield ()
+      } else {
+        for {
+          promocodes_unrefed <- promocodes.get
+
+          filler = "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
+
+          _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix)
+        } yield ()
+      }
     } else {
       val quotient = n_required_promocodes / N_CHARACTERS
       val remainder = n_required_promocodes % N_CHARACTERS
