@@ -97,16 +97,12 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
     if (n_required_promocodes <= getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
       if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) {
         for {
-          promocodes_unrefed <- promocodes.get
-          _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES(n_random_characters - 1).take(n_required_promocodes).map(suffix => common_prefix + suffix)
+          _ <- promocodes.update(_ ++= PREGENERATED_SUFFIXES(n_random_characters - 1).take(n_required_promocodes).map(suffix => common_prefix + suffix))
         } yield ()
       } else {
+        val filler = "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
         for {
-          promocodes_unrefed <- promocodes.get
-
-          filler = "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
-
-          _ = promocodes_unrefed ++= PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix)
+          _ <- promocodes.update(_ ++= PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix))
         } yield ()
       }
     } else {
@@ -158,8 +154,7 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
 
           promocodes <- AtomicCell[IO].of(ArrayBuffer[String]())
 
-          promocodes_infos_unrefed <- promocodes_infos.get
-          _ = promocodes_infos_unrefed.addOne(current_process_id, ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes))
+          _ <- promocodes_infos.update(_.addOne(current_process_id, ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes)))
 
           _ <- generatePromocodes(promocodes, n_promocodes, n_random_characters, common_prefix).start
         } yield GenerationQueryResult(current_process_id)
@@ -228,10 +223,13 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
           for {
             (promocodes, n_required_promocodes) <- promocodes_info
             result <- (if (promocodes.size == n_required_promocodes) Right(GetPromocodesQueryResult(promocodes)) else Left(Error("Generation is not yet completed")))
-            _ = infos_unrefed.remove(process_id)
           } yield result
         ).traverse(promocodes =>
           for {
+            _ <- promocodes_infos.update(promocodes_infos => {
+              promocodes_infos.remove(process_id)
+              promocodes_infos
+            })
             _ <- free_process_ids.offer(process_id)
           } yield(promocodes)
         )
