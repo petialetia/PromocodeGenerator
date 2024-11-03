@@ -52,19 +52,25 @@ case class ProcessInfo(
   generated_promocodes: AtomicCell[IO, ArrayBuffer[String]]
 )
 
-class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: AtomicCell[IO, HashMap[Int, ProcessInfo]]):
+class PromocodeGenerator(
+    free_process_ids: Queue[IO, Int],
+    promocodes_infos: AtomicCell[IO, HashMap[Int, ProcessInfo]]
+):
   val MAX_N_PROMOCODES = 100_000_000
   val MAX_N_RANDOM_CHARACTERS = 100
   val CHARACTERS = ('A' to 'Z').toSet ++ ('0' to '9')
   val N_CHARACTERS = CHARACTERS.size
   val N_CAHARACTER_FOR_FIBER_TO_GENERATE = 3
-  val PREGENERATED_SUFFIXES = 1.until(N_CAHARACTER_FOR_FIBER_TO_GENERATE)
-  .scanLeft(CHARACTERS.map(_.toString))((strings, _) => strings.flatMap(s => CHARACTERS.map(c => s + c)))
+  val PREGENERATED_SUFFIXES =
+      1.until(N_CAHARACTER_FOR_FIBER_TO_GENERATE).scanLeft(CHARACTERS.map(_.toString))(
+          (strings, _) => strings.flatMap(s => CHARACTERS.map(c => s + c))
+      )
 
   def validateNPromocodes(n_promocodes: Int): Either[Error, Int] = {
     n_promocodes match {
       case value if value <= 0 => Left(Error("n_promocodes must be positive"))
-      case value if value > MAX_N_PROMOCODES => Left(Error(s"n_promocodes must be less or equal to ${MAX_N_PROMOCODES}"))
+      case value if value > MAX_N_PROMOCODES =>
+          Left(Error(s"n_promocodes must be less or equal to ${MAX_N_PROMOCODES}"))
       case _ => Right(n_promocodes)
     }
   }
@@ -76,8 +82,14 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
   def validateNRandomCharacters(n_random_characters: Int, n_promocodes: Int): Either[Error, Int] = {
     n_random_characters match {
       case value if value <= 0 => Left(Error("n_random_characters must be positive"))
-      case value if value > MAX_N_RANDOM_CHARACTERS => Left(Error(s"n_random_characters must be less or equal to ${MAX_N_RANDOM_CHARACTERS}"))
-      case value if getNVariantsOfPromocodes(value) < n_promocodes => Left(Error(s"Too little random characters for ${n_promocodes} promocodes to be generated"))
+      case value if value > MAX_N_RANDOM_CHARACTERS =>
+          Left(Error(s"n_random_characters must be less or equal to ${MAX_N_RANDOM_CHARACTERS}"))
+      case value if getNVariantsOfPromocodes(value) < n_promocodes =>
+          Left(
+              Error(
+                  s"Too little random characters for ${n_promocodes} promocodes to be generated"
+              )
+          )
       case _ => Right(n_random_characters)
     }
   }
@@ -93,18 +105,18 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
     }
   }
 
-  def generatePromocodes(promocodes: AtomicCell[IO, ArrayBuffer[String]], n_required_promocodes: Int, n_random_characters: Int, common_prefix: String): IO[Unit] = {
+  def generatePromocodes(
+      promocodes: AtomicCell[IO, ArrayBuffer[String]],
+      n_required_promocodes: Int,
+      n_random_characters: Int,
+      common_prefix: String
+  ): IO[Unit] = {
     if (n_required_promocodes <= getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
-      if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) {
-        for {
-          _ <- promocodes.update(_ ++= PREGENERATED_SUFFIXES(n_random_characters - 1).take(n_required_promocodes).map(suffix => common_prefix + suffix))
-        } yield ()
-      } else {
-        val filler = "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
-        for {
-          _ <- promocodes.update(_ ++= PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix))
-        } yield ()
-      }
+      val filler = if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) "" else "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
+
+      for {
+        _ <- promocodes.update(_ ++= PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix))
+      } yield ()
     } else {
       val quotient = n_required_promocodes / N_CHARACTERS
       val remainder = n_required_promocodes % N_CHARACTERS
@@ -121,13 +133,19 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
     }
   }
 
-  def evalRemainingTime(start_time: LocalDate, current_time: LocalDate, n_required_promocodes: Int, n_generated_promocodes: Int): Option[Int] = {
+  def evalRemainingTime(
+      start_time: LocalDate,
+      current_time: LocalDate,
+      n_required_promocodes: Int,
+      n_generated_promocodes: Int
+  ): Option[Int] = {
     n_generated_promocodes match {
       case value if value == 0 => None
       case value if value == n_required_promocodes => None
       case _ => {
         val n_remaining_promocodes_to_generate = n_required_promocodes - n_generated_promocodes
-        val average_generation_speed = ChronoUnit.MINUTES.between(start_time, current_time).toDouble / n_generated_promocodes
+        val average_generation_speed =
+            ChronoUnit.MINUTES.between(start_time, current_time).toDouble / n_generated_promocodes
         Some((n_remaining_promocodes_to_generate / average_generation_speed).toInt)
       }
     }
@@ -155,7 +173,12 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
 
           promocodes <- AtomicCell[IO].of(ArrayBuffer[String]())
 
-          _ <- promocodes_infos.update(_.addOne(current_process_id, ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes)))
+          _ <- promocodes_infos.update(
+              _.addOne(
+                  current_process_id,
+                  ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes)
+              )
+          )
 
           _ <- generatePromocodes(promocodes, n_promocodes, n_random_characters, common_prefix).start
         } yield GenerationQueryResult(current_process_id)
@@ -177,7 +200,8 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
         infos_unrefed <- promocodes_infos.get
         result <- (
           for {
-            process_data <- infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
+            process_data <-
+                infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
           } yield process_data
         ).traverse(process_data =>
           for {
@@ -186,8 +210,15 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
             n_required_promocodes = process_data.n_required_promocodes
             n_generated_promocodes = generated_promocodes.size
             start_time = process_data.start_time
-            remaining_time = evalRemainingTime(start_time, java.time.LocalDate.now, n_required_promocodes, n_generated_promocodes)
-            percentage_of_job_done = (n_generated_promocodes.toDouble / n_required_promocodes * 100).toInt
+            remaining_time =
+                evalRemainingTime(
+                    start_time,
+                    java.time.LocalDate.now,
+                    n_required_promocodes,
+                    n_generated_promocodes
+                )
+            percentage_of_job_done =
+                (n_generated_promocodes.toDouble / n_required_promocodes * 100).toInt
           } yield CheckingStatusQueryResult(percentage_of_job_done, remaining_time)
         )
       } yield result
@@ -195,9 +226,6 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
 
   val checkingStatusQueryRoutes: HttpRoutes[IO] = Http4sServerInterpreter[IO]()
     .toRoutes(checkingStatusQueryEndpoint)
-
-  def getGeneratedPromocodes(process_data: ProcessInfo): IO[Either[Error, GetPromocodesQueryResult]] =
-    process_data.generated_promocodes.get.flatMap(promocodes => IO(if (promocodes.size == process_data.n_required_promocodes) Right(GetPromocodesQueryResult(promocodes)) else Left(Error("Generation is not yet completed"))))
 
   val getPromocodesQueryEndpoint =
     endpoint
@@ -212,12 +240,15 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
 
         promocodes_info <- (
           for {
-            process_data <- infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
+            process_data <-
+                infos_unrefed.get(process_id).toRight(Error("No started process with such id"))
           } yield process_data
         ).traverse(process_data =>
           (for {
             promocodes <- process_data.generated_promocodes.get
-          } yield promocodes).flatMap(promocodes => IO(promocodes, process_data.n_required_promocodes))
+          } yield promocodes).flatMap(
+              promocodes => IO(promocodes, process_data.n_required_promocodes)
+          )
         )
 
         promocodes <- (
