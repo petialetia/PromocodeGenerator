@@ -109,14 +109,15 @@ class PromocodeGenerator(free_process_ids: Queue[IO, Int], promocodes_infos: Ato
       val quotient = n_required_promocodes / N_CHARACTERS
       val remainder = n_required_promocodes % N_CHARACTERS
 
-      IO(
-        for (i <- (0 to N_CHARACTERS - 1)) {
-          val n_promocodes_for_subroutine_to_generate = quotient + (if (i < remainder) 1 else 0)
-          for {
-            _ <- generatePromocodes(promocodes, n_promocodes_for_subroutine_to_generate, n_random_characters - 1, common_prefix + CHARACTERS.toList(i)).start
-          } yield ()
-        }
-      )
+      0.until(N_CHARACTERS).toVector.traverse { i =>
+        val n_promocodes_for_subroutine_to_generate = quotient + (if (i < remainder) 1 else 0)
+        generatePromocodes(
+          promocodes,
+          n_promocodes_for_subroutine_to_generate,
+          n_random_characters - 1,
+          common_prefix + CHARACTERS.toList(i),
+        ).start
+      }.void
     }
   }
 
