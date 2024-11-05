@@ -7,10 +7,10 @@
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import scala.collection.mutable.HashMap
+import scala.collection.immutable.HashMap
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.std.Queue
-import cats.effect.std.AtomicCell
+import cats.effect.kernel.Ref
 import cats.syntax.all.*
 import org.http4s.HttpRoutes
 import org.http4s.blaze.server.BlazeServerBuilder
@@ -21,7 +21,7 @@ import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import com.github.plokhotnyuk.jsoniter_scala.macros.*
 import sttp.tapir.json.jsoniter.*
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.immutable.List
 
 case class Error(description: String) derives ConfiguredJsonValueCodec, Schema
 
@@ -43,18 +43,18 @@ case class CheckingStatusQueryResult(
 ) derives ConfiguredJsonValueCodec, Schema
 
 case class GetPromocodesQueryResult(
-  provocodes: ArrayBuffer[String]
+  provocodes: List[String]
 ) derives ConfiguredJsonValueCodec, Schema
 
 case class ProcessInfo(
   n_required_promocodes: Int,
   start_time: LocalDate,
-  generated_promocodes: AtomicCell[IO, ArrayBuffer[String]]
+  generated_promocodes: Ref[IO, List[String]]
 )
 
 class PromocodeGenerator(
     free_process_ids: Queue[IO, Int],
-    promocodes_infos: AtomicCell[IO, HashMap[Int, ProcessInfo]]
+    promocodes_infos: Ref[IO, HashMap[Int, ProcessInfo]]
 ):
   val MAX_N_PROMOCODES = 100_000_000
   val MAX_N_RANDOM_CHARACTERS = 100
@@ -106,7 +106,7 @@ class PromocodeGenerator(
   }
 
   def generatePromocodes(
-      promocodes: AtomicCell[IO, ArrayBuffer[String]],
+      promocodes: Ref[IO, List[String]],
       n_required_promocodes: Int,
       n_random_characters: Int,
       common_prefix: String
@@ -115,7 +115,7 @@ class PromocodeGenerator(
       val filler = if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) "" else "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
 
       for {
-        _ <- promocodes.update(_ ++= PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix))
+        _ <- promocodes.update(_ ++ PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix).toList)
       } yield ()
     } else {
       val quotient = n_required_promocodes / N_CHARACTERS
@@ -171,13 +171,10 @@ class PromocodeGenerator(
         for {
           current_process_id <- free_process_ids.take
 
-          promocodes <- AtomicCell[IO].of(ArrayBuffer[String]())
+          promocodes <- Ref[IO].of(List[String]())
 
           _ <- promocodes_infos.update(
-              _.addOne(
-                  current_process_id,
-                  ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes)
-              )
+              _ + ((current_process_id , ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes)))
           )
 
           _ <- generatePromocodes(promocodes, n_promocodes, n_random_characters, common_prefix).start
@@ -258,10 +255,7 @@ class PromocodeGenerator(
           } yield result
         ).traverse(promocodes =>
           for {
-            _ <- promocodes_infos.update(promocodes_infos => {
-              promocodes_infos.remove(process_id)
-              promocodes_infos
-            })
+            _ <- promocodes_infos.update(_ - process_id)
             _ <- free_process_ids.offer(process_id)
           } yield(promocodes)
         )
@@ -288,7 +282,7 @@ object PromocodeServer extends IOApp:
         _ <- List.tabulate(10)(i => i).traverse(queue.offer)
       } yield queue
 
-      promocodes_infos <- AtomicCell[IO].of(HashMap[ProcessIndex, ProcessInfo]())
+      promocodes_infos <- Ref[IO].of(HashMap[ProcessIndex, ProcessInfo]())
 
       generator = PromocodeGenerator(free_process_ids, promocodes_infos)
 
