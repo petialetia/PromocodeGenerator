@@ -6,7 +6,7 @@
 //> using dep com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.31.1
 
 import java.time.Instant
-import java.time.temporal.ChronoUnit
+import java.time.Duration
 import scala.util.Random
 import scala.collection.immutable.HashMap
 import cats.effect.{ExitCode, IO, IOApp}
@@ -150,7 +150,7 @@ class PromocodeGenerator(
       case _ => {
         val n_remaining_promocodes_to_generate = n_required_promocodes - n_generated_promocodes
         val average_generation_speed =
-            ChronoUnit.MINUTES.between(start_time, current_time).toDouble / n_generated_promocodes
+            Duration.between(start_time, current_time).toMinutes() / n_generated_promocodes.toDouble
         Some((n_remaining_promocodes_to_generate / average_generation_speed).toInt)
       }
     }
