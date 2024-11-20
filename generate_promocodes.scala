@@ -279,7 +279,7 @@ object PromocodeServer extends IOApp:
     for {
       free_process_ids <- for {
         queue <- Queue.unbounded[IO, ProcessIndex]
-        _ <- List.tabulate(10)(i => i).traverse(queue.offer)
+        _ <- Vector.tabulate(10_000_000)(i => i).traverse(queue.offer)
       } yield queue
 
       promocodes_infos <- Ref[IO].of(HashMap[ProcessIndex, ProcessInfo]())
