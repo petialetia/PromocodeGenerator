@@ -21,7 +21,7 @@ import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import com.github.plokhotnyuk.jsoniter_scala.macros.*
 import sttp.tapir.json.jsoniter.*
-import scala.collection.immutable.List
+import scala.collection.immutable.Vector
 
 case class Error(description: String) derives ConfiguredJsonValueCodec, Schema
 
@@ -43,13 +43,13 @@ case class CheckingStatusQueryResult(
 ) derives ConfiguredJsonValueCodec, Schema
 
 case class GetPromocodesQueryResult(
-  provocodes: List[String]
+  provocodes: Vector[String]
 ) derives ConfiguredJsonValueCodec, Schema
 
 case class ProcessInfo(
   n_required_promocodes: Int,
   start_time: Instant,
-  generated_promocodes: Ref[IO, List[String]]
+  generated_promocodes: Ref[IO, Vector[String]]
 )
 
 class PromocodeGenerator(
@@ -106,7 +106,7 @@ class PromocodeGenerator(
   }
 
   def generatePromocodes(
-      promocodes: Ref[IO, List[String]],
+      promocodes: Ref[IO, Vector[String]],
       n_required_promocodes: Int,
       n_random_characters: Int,
       common_prefix: String
@@ -171,7 +171,7 @@ class PromocodeGenerator(
         for {
           current_process_id <- free_process_ids.take
 
-          promocodes <- Ref[IO].of(List[String]())
+          promocodes <- Ref[IO].of(Vector[String]())
 
           _ <- promocodes_infos.update(
               _ + ((current_process_id , ProcessInfo(n_promocodes, Instant.now(), promocodes)))
