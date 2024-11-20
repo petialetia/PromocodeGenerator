@@ -115,7 +115,7 @@ class PromocodeGenerator(
       val filler = if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) "" else "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
 
       for {
-        _ <- promocodes.update(_ ++ PREGENERATED_SUFFIXES(N_CAHARACTER_FOR_FIBER_TO_GENERATE - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix).toList)
+        _ <- promocodes.update(_ ++ PREGENERATED_SUFFIXES(scala.math.min(N_CAHARACTER_FOR_FIBER_TO_GENERATE, n_random_characters) - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix).toList)
       } yield ()
     } else {
       val quotient = n_required_promocodes / N_CHARACTERS
