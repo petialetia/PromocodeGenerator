@@ -7,6 +7,7 @@
 
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import scala.util.Random
 import scala.collection.immutable.HashMap
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.std.Queue
@@ -105,6 +106,10 @@ class PromocodeGenerator(
     }
   }
 
+  val alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  def generateRandomString(length: Int) = (1 to length).map(_ => alpha(Random.nextInt(alpha.length))).mkString
+
+
   def generatePromocodes(
       promocodes: Ref[IO, Vector[String]],
       n_required_promocodes: Int,
@@ -112,7 +117,7 @@ class PromocodeGenerator(
       common_prefix: String
   ): IO[Unit] = {
     if (n_required_promocodes <= getNVariantsOfPromocodes(N_CAHARACTER_FOR_FIBER_TO_GENERATE)) {
-      val filler = if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) "" else "P" * (n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
+      val filler = if (n_random_characters <= N_CAHARACTER_FOR_FIBER_TO_GENERATE) "" else generateRandomString(n_random_characters - N_CAHARACTER_FOR_FIBER_TO_GENERATE)
 
       for {
         _ <- promocodes.update(_ ++ PREGENERATED_SUFFIXES(scala.math.min(N_CAHARACTER_FOR_FIBER_TO_GENERATE, n_random_characters) - 1).take(n_required_promocodes).map(suffix => common_prefix + filler + suffix).toList)
