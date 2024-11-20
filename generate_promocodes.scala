@@ -5,7 +5,7 @@
 //> using dep org.http4s::http4s-blaze-server:0.23.16
 //> using dep com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.31.1
 
-import java.time.LocalDate
+import java.time.Instant
 import java.time.temporal.ChronoUnit
 import scala.collection.immutable.HashMap
 import cats.effect.{ExitCode, IO, IOApp}
@@ -48,7 +48,7 @@ case class GetPromocodesQueryResult(
 
 case class ProcessInfo(
   n_required_promocodes: Int,
-  start_time: LocalDate,
+  start_time: Instant,
   generated_promocodes: Ref[IO, List[String]]
 )
 
@@ -134,8 +134,8 @@ class PromocodeGenerator(
   }
 
   def evalRemainingTime(
-      start_time: LocalDate,
-      current_time: LocalDate,
+      start_time: Instant,
+      current_time: Instant,
       n_required_promocodes: Int,
       n_generated_promocodes: Int
   ): Option[Int] = {
@@ -174,7 +174,7 @@ class PromocodeGenerator(
           promocodes <- Ref[IO].of(List[String]())
 
           _ <- promocodes_infos.update(
-              _ + ((current_process_id , ProcessInfo(n_promocodes, java.time.LocalDate.now, promocodes)))
+              _ + ((current_process_id , ProcessInfo(n_promocodes, Instant.now(), promocodes)))
           )
 
           _ <- generatePromocodes(promocodes, n_promocodes, n_random_characters, common_prefix).start
@@ -210,7 +210,7 @@ class PromocodeGenerator(
             remaining_time =
                 evalRemainingTime(
                     start_time,
-                    java.time.LocalDate.now,
+                    Instant.now(),
                     n_required_promocodes,
                     n_generated_promocodes
                 )
